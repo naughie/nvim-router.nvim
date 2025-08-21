@@ -59,14 +59,14 @@ local function gen_main(root_dir, deps)
     for i, dep in ipairs(deps) do
         local dep_mod = string.format([[
             mod dep%d {
-                pub use dep%d::NeovimHandler as H;
+                pub use dep%d::%s as H;
                 #[derive(Clone)]
                 pub struct N;
                 impl nvim_router::Namespace for N {
                     const NS: &str = "%s";
                 }
             }
-        ]], i, i, dep.ns)
+        ]], i, i, dep.handler, dep.ns)
         body = body .. dep_mod
     end
 
