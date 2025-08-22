@@ -17,6 +17,20 @@ local function create_bin_project(plugin_dir, deps, callback)
     end)
 end
 
+local function read_cargo_ver(cargo_path)
+    local read_pack_info = false
+    for line in io.lines(cargo_path) do
+        if line == "[package]" then
+            read_pack_info = true
+        elseif line:match("^%[.*%]$") then
+            read_pack_info = false
+        elseif read_pack_info then
+            local ver = line:match('^version%s*=%s"(.-)"$')
+            if ver then return ver end
+        end
+    end
+end
+
 local function executable(plugin_dir)
     local cmd = fs_struct.binary(plugin_dir)
     return vim.fn.executable(cmd) == 1
@@ -98,6 +112,9 @@ function M.build_if_all_registered()
 end
 
 function M.register(dep)
+    local cargo_path = dep.path .. "/Cargo.toml"
+    local ver = read_cargo_ver(cargo_path)
+    if ver then dep.ver = ver end
     table.insert(opts.deps, dep)
     configured_deps[dep.ns] = true
 

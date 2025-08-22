@@ -100,8 +100,8 @@ local file_content = {
         local content = ""
         for _, dep in ipairs(deps) do
             local dep_obj = string.format([[
-                { "package": "%s", "path": "%s", "handler": "%s", "ns": "%s" }
-            ]], dep.package, dep.path, dep.handler, dep.ns)
+                { "package": "%s", "path": "%s", "handler": "%s", "ns": "%s", "ver": "%s" }
+            ]], dep.package, dep.path, dep.handler, dep.ns, dep.ver)
             content = content .. dep_obj
         end
         return content
