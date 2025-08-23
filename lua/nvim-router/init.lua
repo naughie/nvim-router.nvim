@@ -98,14 +98,8 @@ end
 local opts = { deps = {} }
 local configured_deps = {}
 
-M.rpc = function(init_ns)
-    local ns = init_ns
-
+local function create_rpc_interface(ns)
     return {
-        update_ns = function(new_ns)
-            ns = new_ns
-        end,
-
         notify = function(name, ...)
             local jobid = job_state.id
             if not jobid then return end
@@ -144,6 +138,8 @@ function M.register(dep)
     configured_deps[dep.ns] = true
 
     M.build_if_all_registered()
+
+    return create_rpc_interface(dep.ns)
 end
 
 function M.setup(init_opts)
