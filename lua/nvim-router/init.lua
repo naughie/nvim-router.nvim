@@ -17,8 +17,13 @@ local function create_bin_project(plugin_dir, deps, callback)
     end)
 end
 
-local function read_cargo_ver(cargo_path)
+local function read_cargo(cargo_path)
     local read_pack_info = false
+    local package_info = {
+        ver = nil,
+        name = nil,
+    }
+
     for line in io.lines(cargo_path) do
         if line == "[package]" then
             read_pack_info = true
@@ -26,9 +31,20 @@ local function read_cargo_ver(cargo_path)
             read_pack_info = false
         elseif read_pack_info then
             local ver = line:match('^version%s*=%s"(.-)"$')
-            if ver then return ver end
+            if ver then
+                package_info.ver = ver
+                if package_info.ver and package_info.name then return package_info end
+            else
+                local name = line:match('^name%s*=%s"(.-)"$')
+                if name then
+                    package_info.name = name
+                    if package_info.ver and package_info.name then return package_info end
+                end
+            end
         end
     end
+
+    return package_info
 end
 
 local function executable(plugin_dir)
@@ -112,9 +128,10 @@ function M.build_if_all_registered()
 end
 
 function M.register(dep)
-    local cargo_path = dep.path .. "/Cargo.toml"
-    local ver = read_cargo_ver(cargo_path)
-    if ver then dep.ver = ver end
+    local pack_info = read_cargo(dep.path .. "/Cargo.toml")
+    if pack_info.ver then dep.ver = pack_info.ver end
+    if pack_info.name then dep.package = pack_info.name end
+
     table.insert(opts.deps, dep)
     configured_deps[dep.ns] = true
 
