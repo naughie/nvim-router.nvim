@@ -98,21 +98,29 @@ end
 local opts = { deps = {} }
 local configured_deps = {}
 
-M.rpc = {
-    notify = function(ns, name, ...)
-        local jobid = job_state.id
-        if not jobid then return end
+M.rpc = function(init_ns)
+    local ns = init_ns
 
-        vim.rpcnotify(jobid, ns .. "::" .. name, ...)
-    end,
+    return {
+        update_ns = function(new_ns)
+            ns = new_ns
+        end,
 
-    request = function(ns, name, ...)
-        local jobid = job_state.id
-        if not jobid then return end
+        notify = function(name, ...)
+            local jobid = job_state.id
+            if not jobid then return end
 
-        return vim.rpcrequest(jobid, ns .. "::" .. name, ...)
-    end,
-}
+            vim.rpcnotify(jobid, ns .. "::" .. name, ...)
+        end,
+
+        request = function(name, ...)
+            local jobid = job_state.id
+            if not jobid then return end
+
+            return vim.rpcrequest(jobid, ns .. "::" .. name, ...)
+        end,
+    }
+end
 
 function M.build_and_spawn(force)
     if not opts.plugin_dir or not opts.deps then return end
