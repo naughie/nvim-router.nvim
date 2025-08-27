@@ -8,6 +8,9 @@ local file_content = {
             version = "0.1.0"
             edition = "2024"
 
+            [profile.release]
+            strip = "symbols"
+
             [dependencies]
             nvim-router = { git = "https://github.com/naughie/nvim-router.rs.git", branch = "main", features = ["tokio"] }
             tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
