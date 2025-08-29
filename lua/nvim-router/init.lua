@@ -1,63 +1,45 @@
 local M = {}
 
-local fs_struct = require("nvim-router.fs_struct")
-local gen = require("nvim-router.gen")
-
 local job_state = { id = nil }
 
-local function create_bin_project(plugin_dir, deps, callback)
-    gen.root_dir(plugin_dir, function()
-        if not gen.cargo_toml(plugin_dir, deps) then return end
-
-        gen.src_dir(plugin_dir, function()
-            if not gen.main_rs(plugin_dir, deps) then return end
-
-            callback()
-        end)
-    end)
-end
-
-local function read_cargo(cargo_path)
-    local read_pack_info = false
-    local package_info = {
-        ver = nil,
-        name = nil,
-    }
-
-    for line in io.lines(cargo_path) do
-        if line == "[package]" then
-            read_pack_info = true
-        elseif line:match("^%[.*%]$") then
-            read_pack_info = false
-        elseif read_pack_info then
-            local ver = line:match('^version%s*=%s"(.-)"$')
-            if ver then
-                package_info.ver = ver
-                if package_info.ver and package_info.name then return package_info end
-            else
-                local name = line:match('^name%s*=%s"(.-)"$')
-                if name then
-                    package_info.name = name
-                    if package_info.ver and package_info.name then return package_info end
-                end
-            end
+local function gen_deps_json(path, deps)
+    local content = "["
+    for i, dep in ipairs(deps) do
+        local dep_item = string.format(
+            [[{"path":"%s","handler":"%s","ns":"%s"}]],
+            dep.path,
+            dep.handler,
+            dep.ns
+        )
+        if i == 1 then
+            content = content .. dep_item
+        else
+            content = content .. "," .. dep_item
         end
     end
+    content = content .. "]"
 
-    return package_info
+    local file = io.open(path, "w")
+    if not file then return end
+
+    local write_ok = file:write(content)
+    if not write_ok  then return end
+
+    local close_ok = file:close()
+    if not close_ok then return end
+
+    return true
 end
 
-local function executable(plugin_dir)
-    local cmd = fs_struct.binary(plugin_dir)
-    return vim.fn.executable(cmd) == 1
+local function executable(path)
+    return vim.fn.executable(path) == 1
 end
 
-local function spawn(plugin_dir)
+local function spawn(bin_path)
     if job_state.id then return end
-    if not executable(plugin_dir) then return end
+    if not executable(bin_path) then return end
 
-    local cmd = fs_struct.binary(plugin_dir)
-    local id = vim.fn.jobstart({ cmd }, { rpc = true })
+    local id = vim.fn.jobstart({ bin_path }, { rpc = true })
     if id ~= 0 and id ~= 1 then
         job_state.id = id
 
@@ -71,27 +53,22 @@ local function kill()
 end
 
 local function build_and_spawn(plugin_dir, deps, force)
-    local new_deps = gen.last_deps.content(deps)
-
-    if not force then
-        local last_deps = gen.last_deps.read(plugin_dir)
-
-        if last_deps == new_deps and executable(plugin_dir) then
-            spawn(plugin_dir)
-            return
-        end
-    end
-
     kill()
-    create_bin_project(plugin_dir, deps, function()
-        vim.system({ "cargo", "build", "--release" }, { cwd = fs_struct.root_dir(plugin_dir) }, function(out)
-            if out.code == 0 then
-                gen.last_deps.write(plugin_dir, new_deps)
-                vim.schedule(function()
-                    spawn(plugin_dir)
-                end)
-            end
-        end)
+
+    local gen_base = plugin_dir .. "/lib/gen-bin-project"
+    local bin_base = plugin_dir .. "/nvim-router-bin"
+
+    local bin_path = bin_base .. "/target/release/nvim-router"
+    local executable = executable(bin_path)
+
+    local deps_path = gen_base .. "/deps.json"
+    if not gen_deps_json(deps_path, deps) then return end
+
+    local check_changes = not (not executable or force)
+    vim.system({ "cargo", "run", "--release", bin_base, tostring(check_changes) }, { cwd = gen_base }, function(out)
+        if out.code == 0 then
+            vim.schedule(function() spawn(bin_path) end)
+        end
     end)
 end
 
@@ -130,10 +107,6 @@ function M.build_if_all_registered()
 end
 
 function M.register(dep)
-    local pack_info = read_cargo(dep.path .. "/Cargo.toml")
-    if pack_info.ver then dep.ver = pack_info.ver end
-    if pack_info.name then dep.package = pack_info.name end
-
     table.insert(opts.deps, dep)
     configured_deps[dep.ns] = true
 
