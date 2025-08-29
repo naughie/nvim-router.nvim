@@ -128,6 +128,17 @@ impl Deps {
     }
 
     fn bin_main_rs(&self) -> impl Display {
+        struct Namespace<'a>(&'a str);
+
+        impl Display for Namespace<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                for c in self.0.chars() {
+                    write!(f, "{}", c.escape_default())?;
+                }
+                Ok(())
+            }
+        }
+
         struct Inner<'a>(&'a Deps);
 
         impl Display for Inner<'_> {
@@ -160,7 +171,8 @@ impl Deps {
                                 }}
                             }}
                         "#,
-                        args.handler, args.ns,
+                        args.handler,
+                        Namespace(&args.ns),
                     )?;
                 }
 

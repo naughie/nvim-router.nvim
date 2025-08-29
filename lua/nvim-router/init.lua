@@ -5,11 +5,12 @@ local job_state = { id = nil }
 local function gen_deps_json(path, deps)
     local content = "["
     for i, dep in ipairs(deps) do
+        local escaped_ns = string.gsub(dep.ns, "[\"\\]", { ["\""] = "\\\"", ["\\"] = "\\\\" })
         local dep_item = string.format(
             [[{"path":"%s","handler":"%s","ns":"%s"}]],
             dep.path,
             dep.handler,
-            dep.ns
+            escaped_ns
         )
         if i == 1 then
             content = content .. dep_item
