@@ -59,12 +59,11 @@ local function build_and_spawn(plugin_dir, deps, force)
     local bin_base = plugin_dir .. "/nvim-router-bin"
 
     local bin_path = bin_base .. "/target/release/nvim-router"
-    local executable = executable(bin_path)
 
     local deps_path = gen_base .. "/deps.json"
     if not gen_deps_json(deps_path, deps) then return end
 
-    local check_changes = not (not executable or force)
+    local check_changes = not force and executable(bin_path)
     vim.system({ "cargo", "run", "--release", bin_base, tostring(check_changes) }, { cwd = gen_base }, function(out)
         if out.code == 0 then
             vim.schedule(function() spawn(bin_path) end)
