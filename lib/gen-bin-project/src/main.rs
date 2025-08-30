@@ -78,7 +78,13 @@ impl Deps {
 
     fn read_last(base: impl AsRef<Path>) -> Option<Self> {
         let path = base.as_ref().join("last-deps.json");
-        let content = std::fs::read_to_string(path).ok()?;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("IO error when reading {}: {e}", path.display());
+                return None;
+            }
+        };
         log::info!("Found last-deps: {content:?}");
         let v = serde_json::from_str::<Self>(&content).ok()?;
         Some(v.sort())
