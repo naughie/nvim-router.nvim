@@ -56,6 +56,7 @@ impl DepArgs {
             })
             .collect::<Result<Vec<_>, _>>()
             .map(Deps)
+            .map(Deps::sort)
     }
 }
 
@@ -69,11 +70,18 @@ struct Dep {
 struct Deps(Vec<Dep>);
 
 impl Deps {
+    fn sort(mut self) -> Self {
+        self.0
+            .sort_unstable_by(|lhs, rhs| lhs.user.ns.cmp(&rhs.user.ns));
+        self
+    }
+
     fn read_last(base: impl AsRef<Path>) -> Option<Self> {
         let path = base.as_ref().join("last-deps.json");
         let content = std::fs::read_to_string(path).ok()?;
-        let v = serde_json::from_str(&content).ok()?;
-        Some(v)
+        log::info!("Found last-deps: {content:?}");
+        let v = serde_json::from_str::<Self>(&content).ok()?;
+        Some(v.sort())
     }
 
     fn write_last(&self, base: impl AsRef<Path>) -> Result<(), Error> {
@@ -287,16 +295,25 @@ fn build(
     let bin_base = bin_base.as_ref();
     let gen_base = gen_base.as_ref();
 
+    log::info!(
+        "Start building with bin_base = {}, gen_base = {}, check_changes = {check_changes}",
+        bin_base.display(),
+        gen_base.display()
+    );
+
     let deps = DepArgs::read_args(gen_base)?.read_metadata()?;
+    log::info!("Read deps: {deps:?}");
 
     if check_changes
         && let Some(last_deps) = Deps::read_last(bin_base)
         && deps == last_deps
     {
+        log::info!("Identical deps. Finish.");
         return Ok(());
     }
 
     create_bin_content(bin_base, &deps)?;
+    log::info!("Created a bin project. Building ...");
 
     let output = Command::new("cargo")
         .args(["build", "--release"])
@@ -305,6 +322,7 @@ fn build(
 
     if output.status.success() {
         deps.write_last(bin_base)?;
+        log::info!("Finish.");
     }
 
     Ok(())
@@ -328,13 +346,24 @@ impl Display for InvalidArgs {
 impl std::error::Error for InvalidArgs {}
 
 fn main() -> Result<(), Error> {
+    use simplelog::{Config, LevelFilter, WriteLogger};
+
+    let log_file = std::fs::File::create("gen-bin-project.log")?;
+    WriteLogger::init(LevelFilter::Info, Config::default(), log_file)?;
+
     let mut args = std::env::args().skip(1);
     let Some(bin_base) = args.next() else {
+        log::error!("Invalid arguments: {:?}", std::env::args());
         return Err(InvalidArgs.into());
     };
     let Some(check_changes) = args.next() else {
+        log::error!("Invalid arguments: {:?}", std::env::args());
         return Err(InvalidArgs.into());
     };
 
-    build(bin_base, ".", check_changes == "true")
+    if let Err(e) = build(bin_base, ".", check_changes == "true") {
+        log::error!("Error in build: {e}");
+        return Err(e);
+    }
+    Ok(())
 }
