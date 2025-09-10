@@ -99,166 +99,193 @@ impl Deps {
     }
 
     fn bin_cargo_toml(&self) -> impl Display {
-        struct Inner<'a>(&'a Deps);
+        use std::borrow::Cow;
+        use std::collections::HashMap;
 
-        impl Display for Inner<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                writeln!(
-                    f,
-                    r#"
-                        [package]
-                        name = "nvim-router"
-                        version = "0.1.0"
-                        edition = "2024"
-
-                        [profile.release]
-                        strip = "symbols"
-                        lto = true
-
-                        [dependencies]
-                        nvim-router = {{ git = "https://github.com/naughie/nvim-router.rs.git", branch = "main", features = ["tokio"] }}
-                        tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "sync"] }}
-                    "#
-                )?;
-
-                for (i, args, pack) in self.0.iter() {
-                    writeln!(
-                        f,
-                        r#"dep{i} = {{ package = "{}", path = "{}" }}"#,
-                        pack.name, args.path,
-                    )?;
-                }
-                Ok(())
-            }
+        #[derive(Serialize)]
+        struct Package {
+            name: &'static str,
+            version: &'static str,
+            edition: &'static str,
         }
 
-        Inner(self)
+        #[derive(Serialize)]
+        struct Profile {
+            strip: &'static str,
+            lto: bool,
+        }
+
+        #[derive(Serialize)]
+        struct Profiles {
+            release: Profile,
+        }
+
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum DependencyLocation<'a> {
+            Git {
+                git: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                branch: Option<&'a str>,
+            },
+            CratesIo {
+                version: &'a str,
+            },
+            LocalPath {
+                path: &'a str,
+            },
+        }
+
+        #[derive(Serialize)]
+        struct Dependency<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            package: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            features: Option<&'a [&'a str]>,
+            #[serde(flatten)]
+            location: DependencyLocation<'a>,
+        }
+
+        #[derive(Serialize)]
+        struct Cargo<'a> {
+            package: Package,
+            profile: Profiles,
+            dependencies: HashMap<Cow<'a, str>, Dependency<'a>>,
+        }
+
+        let mut dependencies = HashMap::new();
+        dependencies.insert(
+            Cow::Borrowed("nvim-router"),
+            Dependency {
+                package: None,
+                features: Some(&["tokio"]),
+                location: DependencyLocation::Git {
+                    git: "https://github.com/naughie/nvim-router.rs.git",
+                    branch: Some("main"),
+                },
+            },
+        );
+        dependencies.insert(
+            Cow::Borrowed("tokio"),
+            Dependency {
+                package: None,
+                features: Some(&["macros", "rt-multi-thread", "sync"]),
+                location: DependencyLocation::CratesIo { version: "1" },
+            },
+        );
+
+        for (i, args, pack) in self.iter() {
+            dependencies.insert(
+                Cow::Owned(format!("dep{i}")),
+                Dependency {
+                    package: Some(&pack.name),
+                    features: None,
+                    location: DependencyLocation::LocalPath { path: &args.path },
+                },
+            );
+        }
+
+        let cargo = Cargo {
+            package: Package {
+                name: "nvim-router",
+                version: "0.1.0",
+                edition: "2024",
+            },
+            profile: Profiles {
+                release: Profile {
+                    strip: "symbols",
+                    lto: true,
+                },
+            },
+            dependencies,
+        };
+
+        toml::to_string(&cargo).unwrap_or_default()
     }
 
     fn bin_main_rs(&self) -> impl Display {
-        struct Namespace<'a>(&'a str);
+        use quote::{format_ident, quote};
 
-        impl Display for Namespace<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                for c in self.0.chars() {
-                    write!(f, "{}", c.escape_default())?;
+        let dep_mod = self.iter().map(|(i, args, _)| {
+            let mod_name = format_ident!("dep{i}");
+            let handler = format_ident!("{}", args.handler);
+            let ns = &args.ns;
+
+            quote! {
+                mod #mod_name {
+                    pub use ::#mod_name::#handler as H;
+                    #[derive(Clone)]
+                    pub struct N;
+                    impl nvim_router::Namespace for N {
+                        const NS: &str = #ns;
+                    }
                 }
-                Ok(())
             }
-        }
+        });
 
-        struct Inner<'a>(&'a Deps);
+        let generics = self.iter().map(|(i, _, _)| {
+            let mod_name = format_ident!("dep{i}");
+            quote! {
+                (crate::#mod_name::N, crate::#mod_name::H)
+            }
+        });
 
-        impl Display for Inner<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                writeln!(
-                    f,
-                    r#"
-                        use std::error::Error;
+        let init = self.iter().map(|(i, _, _)| {
+            let mod_name = format_ident!("dep{i}");
+            quote! {
+                (
+                    crate::#mod_name::N,
+                    <crate::#mod_name::H as NeovimHandler<NvimWtr>>::new()
+                )
+            }
+        });
 
-                        use tokio::fs::File as TokioFile;
+        quote! {
+            use std::error::Error;
 
-                        use nvim_router::NeovimHandler;
-                        use nvim_router::Router;
-                        use nvim_router::nvim_rs::{{compat::tokio::Compat, create::tokio as create}};
+            use tokio::fs::File as TokioFile;
 
-                        type NvimWtr = Compat<TokioFile>;
-                    "#
-                )?;
+            use nvim_router::NeovimHandler;
+            use nvim_router::Router;
+            use nvim_router::nvim_rs::{compat::tokio::Compat, create::tokio as create};
 
-                for (i, args, _) in self.0.iter() {
-                    writeln!(
-                        f,
-                        r#"
-                            mod dep{i} {{
-                                pub use ::dep{i}::{} as H;
-                                #[derive(Clone)]
-                                pub struct N;
-                                impl nvim_router::Namespace for N {{
-                                    const NS: &str = "{}";
-                                }}
-                            }}
-                        "#,
-                        args.handler,
-                        Namespace(&args.ns),
-                    )?;
+            type NvimWtr = Compat<TokioFile>;
+
+            #( #dep_mod )*
+
+            #[tokio::main]
+            async fn main() -> Result<(), Box<dyn Error>> {
+                let handler = Router::<NvimWtr, ( #( #generics ),* )>::new(( #( #init ),*));
+                let (nvim, io_handler) = create::new_parent(handler).await?;
+
+                match io_handler.await {
+                    Err(joinerr) => eprintln!("Error joining IO loop: '{joinerr}'"),
+                    Ok(Err(err)) => {
+                        if !err.is_reader_error() {
+                            nvim.err_writeln(&format!("Error: '{err}'"))
+                                .await
+                                .unwrap_or_else(|e| {
+                                    eprintln!("Well, dang... '{e}'");
+                                });
+                        }
+
+                        if !err.is_channel_closed() {
+                            eprintln!("Error: '{err}'");
+
+                            let mut source = err.source();
+
+                            while let Some(e) = source {
+                                eprintln!("Caused by: '{e}'");
+                                source = e.source();
+                            }
+                        }
+                    }
+                    Ok(Ok(())) => {}
                 }
-
-                writeln!(
-                    f,
-                    r#"
-                        #[tokio::main]
-                        async fn main() -> Result<(), Box<dyn Error>> {{
-                            let handler = Router::<NvimWtr, (
-                    "#
-                )?;
-
-                for (i, _, _) in self.0.iter() {
-                    writeln!(
-                        f,
-                        r#"
-                            (crate::dep{i}::N, crate::dep{i}::H),
-                        "#,
-                    )?;
-                }
-
-                writeln!(
-                    f,
-                    r#"
-                        )>::new((
-                    "#
-                )?;
-
-                for (i, _, _) in self.0.iter() {
-                    writeln!(
-                        f,
-                        r#"
-                            (crate::dep{i}::N, <crate::dep{i}::H as NeovimHandler<NvimWtr>>::new()),
-                        "#,
-                    )?;
-                }
-
-                writeln!(
-                    f,
-                    r#"
-                            ));
-                            let (nvim, io_handler) = create::new_parent(handler).await?;
-
-                            match io_handler.await {{
-                                Err(joinerr) => eprintln!("Error joining IO loop: '{{joinerr}}'"),
-                                Ok(Err(err)) => {{
-                                    if !err.is_reader_error() {{
-                                        nvim.err_writeln(&format!("Error: '{{err}}'"))
-                                            .await
-                                            .unwrap_or_else(|e| {{
-                                                eprintln!("Well, dang... '{{e}}'");
-                                            }});
-                                    }}
-
-                                    if !err.is_channel_closed() {{
-                                        eprintln!("Error: '{{err}}'");
-
-                                        let mut source = err.source();
-
-                                        while let Some(e) = source {{
-                                            eprintln!("Caused by: '{{e}}'");
-                                            source = e.source();
-                                        }}
-                                    }}
-                                }}
-                                Ok(Ok(())) => {{}}
-                            }}
-
-                            Ok(())
-                        }}
-                    "#
-                )?;
 
                 Ok(())
             }
         }
-
-        Inner(self)
     }
 }
 

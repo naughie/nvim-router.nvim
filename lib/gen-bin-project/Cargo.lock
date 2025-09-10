@@ -22,6 +22,7 @@ name = "gen-bin-project"
 version = "0.1.0"
 dependencies = [
  "log",
+ "quote",
  "serde",
  "serde_json",
  "simplelog",
