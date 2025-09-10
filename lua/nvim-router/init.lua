@@ -6,9 +6,11 @@ local function gen_deps_json(path, deps)
     local content = "["
     for i, dep in ipairs(deps) do
         local escaped_ns = string.gsub(dep.ns, "[\"\\]", { ["\""] = "\\\"", ["\\"] = "\\\\" })
+        local escaped_path = string.gsub(dep.path, "[\"\\]", { ["\""] = "\\\"", ["\\"] = "\\\\" })
+
         local dep_item = string.format(
             [[{"path":"%s","handler":"%s","ns":"%s"}]],
-            dep.path,
+            escaped_path,
             dep.handler,
             escaped_ns
         )
