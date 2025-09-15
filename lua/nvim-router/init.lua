@@ -3,8 +3,22 @@ local M = {}
 local job_state = { id = nil }
 
 local function gen_deps_json(deps)
+    local escape_replacements = {
+        ["\""] = "\\\"",
+        ["\\"] = "\\\\",
+        ["\b"] = "\\b",
+        ["\f"] = "\\f",
+        ["\n"] = "\\n",
+        ["\r"] = "\\r",
+        ["\t"] = "\\t",
+    }
+    local replace = function(c)
+        if escape_replacements[c] then return escape_replacements[c] end
+        return string.format("\\u%04x", string.byte(c))
+    end
+
     local function escape_json_string(s)
-        return string.gsub(s, "[\"\\]", { ["\""] = "\\\"", ["\\"] = "\\\\" })
+        return string.gsub(s, "[\"\\\0-\31]", replace)
     end
 
     local content = "["
