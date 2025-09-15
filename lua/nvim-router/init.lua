@@ -18,7 +18,7 @@ local function gen_deps_json(deps)
     end
 
     local function escape_json_string(s)
-        return string.gsub(s, "[\"\\\0-\31]", replace)
+        return string.gsub(s, "[\"\\%z\1-\31]", replace)
     end
 
     local content = "["
