@@ -2,17 +2,18 @@ local M = {}
 
 local job_state = { id = nil }
 
-local function gen_deps_json(path, deps)
+local function gen_deps_json(deps)
+    local function escape_json_string(s)
+        return string.gsub(s, "[\"\\]", { ["\""] = "\\\"", ["\\"] = "\\\\" })
+    end
+
     local content = "["
     for i, dep in ipairs(deps) do
-        local escaped_ns = string.gsub(dep.ns, "[\"\\]", { ["\""] = "\\\"", ["\\"] = "\\\\" })
-        local escaped_path = string.gsub(dep.path, "[\"\\]", { ["\""] = "\\\"", ["\\"] = "\\\\" })
-
         local dep_item = string.format(
             [[{"path":"%s","handler":"%s","ns":"%s"}]],
-            escaped_path,
-            dep.handler,
-            escaped_ns
+            escape_json_string(dep.path),
+            escape_json_string(dep.handler),
+            escape_json_string(dep.ns)
         )
         if i == 1 then
             content = content .. dep_item
@@ -22,16 +23,7 @@ local function gen_deps_json(path, deps)
     end
     content = content .. "]"
 
-    local file = io.open(path, "w")
-    if not file then return end
-
-    local write_ok = file:write(content)
-    if not write_ok  then return end
-
-    local close_ok = file:close()
-    if not close_ok then return end
-
-    return true
+    return content
 end
 
 local function executable(path)
@@ -63,11 +55,10 @@ local function build_and_spawn(plugin_dir, deps, force)
 
     local bin_path = bin_base .. "/target/release/nvim-router"
 
-    local deps_path = gen_base .. "/deps.json"
-    if not gen_deps_json(deps_path, deps) then return end
+    local deps_json = gen_deps_json(deps)
 
     local check_changes = not force and executable(bin_path)
-    vim.system({ "cargo", "run", "--release", bin_base, tostring(check_changes) }, { cwd = gen_base }, function(out)
+    vim.system({ "cargo", "run", "--release", bin_base, deps_json, tostring(check_changes) }, { cwd = gen_base }, function(out)
         if out.code == 0 then
             vim.schedule(function() spawn(bin_path) end)
         end

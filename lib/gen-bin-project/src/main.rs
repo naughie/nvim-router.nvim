@@ -37,10 +37,8 @@ struct DepArg {
 struct DepArgs(Vec<DepArg>);
 
 impl DepArgs {
-    fn read_args(base: impl AsRef<Path>) -> Result<Self, Error> {
-        let path = base.as_ref().join("deps.json");
-        let content = std::fs::read_to_string(path)?;
-        let v = serde_json::from_str(&content)?;
+    fn read_args(json: &str) -> Result<Self, Error> {
+        let v = serde_json::from_str(json)?;
         Ok(v)
     }
 
@@ -314,21 +312,15 @@ fn create_bin_content(base: impl AsRef<Path>, deps: &Deps) -> Result<(), Error> 
     Ok(())
 }
 
-fn build(
-    bin_base: impl AsRef<Path>,
-    gen_base: impl AsRef<Path>,
-    check_changes: bool,
-) -> Result<(), Error> {
+fn build(bin_base: impl AsRef<Path>, deps_json: &str, check_changes: bool) -> Result<(), Error> {
     let bin_base = bin_base.as_ref();
-    let gen_base = gen_base.as_ref();
 
     log::info!(
-        "Start building with bin_base = {}, gen_base = {}, check_changes = {check_changes}",
+        "Start building with bin_base = {}, deps_json = {deps_json}, check_changes = {check_changes}",
         bin_base.display(),
-        gen_base.display()
     );
 
-    let deps = DepArgs::read_args(gen_base)?.read_metadata()?;
+    let deps = DepArgs::read_args(deps_json)?.read_metadata()?;
     log::info!("Read deps: {deps:?}");
 
     if check_changes
@@ -375,11 +367,19 @@ impl std::error::Error for InvalidArgs {}
 fn main() -> Result<(), Error> {
     use simplelog::{Config, LevelFilter, WriteLogger};
 
-    let log_file = std::fs::File::create("gen-bin-project.log")?;
+    let log_file = {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let path = Path::new(manifest_dir).join("gen-bin-project.log");
+        std::fs::File::create(path)?
+    };
     WriteLogger::init(LevelFilter::Info, Config::default(), log_file)?;
 
     let mut args = std::env::args().skip(1);
     let Some(bin_base) = args.next() else {
+        log::error!("Invalid arguments: {:?}", std::env::args());
+        return Err(InvalidArgs.into());
+    };
+    let Some(deps_json) = args.next() else {
         log::error!("Invalid arguments: {:?}", std::env::args());
         return Err(InvalidArgs.into());
     };
@@ -388,7 +388,7 @@ fn main() -> Result<(), Error> {
         return Err(InvalidArgs.into());
     };
 
-    if let Err(e) = build(bin_base, ".", check_changes == "true") {
+    if let Err(e) = build(bin_base, &deps_json, check_changes == "true") {
         log::error!("Error in build: {e}");
         return Err(e);
     }
