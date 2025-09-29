@@ -62,6 +62,8 @@ local function kill()
 end
 
 local function build_and_spawn(plugin_dir, deps, force)
+    if not executable("cargo") then return end
+
     kill()
 
     local gen_base = plugin_dir .. "/lib/gen-bin-project"
